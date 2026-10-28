@@ -18,7 +18,7 @@ export default defineConfig({
     // 1. Fixes the host block error (Added new domain and localtunnel domain)
     allowedHosts: [
       'cloud.atikhosen.com',
-      'drive.atikhosen.com',
+      'https://onepipepilot.wasmer.app',
       'onepipepilot.vercel.app'
     ],
     
