@@ -1,4 +1,4 @@
-# Local Video Host API (v1)
+# OnePipePilot API (v1)
 
 Base URL: your configured public base URL, e.g. `https://media.example.com` (locally `http://localhost:3000`).
 
@@ -345,3 +345,73 @@ Delivery safety rules (all libraries send `X-Content-Type-Options: nosniff`):
 
 * **FFprobe** (part of FFmpeg) is used when installed and found on `PATH` (or at `FFPROBE_PATH` in `.env`). It covers every video format.
 * Without it, a built-in reader analyses MP4/MOV/M4V/3GP, WebM/MKV and AVI videos, and all supported image formats. MPEG, WMV, FLV, TS and MTS are stored with `metadataStatus: "unavailable"` until FFprobe is installed; then use System -> Media metadata -> "Retry unavailable", or `POST .../reprocess`.
+
+
+---
+
+# Google Drive import (n8n sends a link, not the video)
+
+The upload endpoints `POST /api/v1/videos`, `/images` and `/files` also accept a small **JSON** body (or a plain form field) with a Google Drive link. OnePipePilot then downloads the file directly from Google Drive with the official API, stores and registers it like any upload, and answers with the **same response shape** as a normal upload. Multipart binary uploads work exactly as before.
+
+An administrator must first connect a Google account (dashboard -> Google Drive). Authentication is the usual API key.
+
+```bash
+curl -X POST "https://media.example.com/api/v1/videos" \
+  -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" \
+  -d '{ "webViewLink": "https://drive.google.com/file/d/FILE_ID/view?usp=sharing" }'
+```
+
+## Request
+
+| Field | Meaning |
+| --- | --- |
+| `webViewLink` | The Drive link. Also accepted: `driveUrl`, `driveLink`, `fileId`, `driveFileId`, or `url` when it is a Drive link. Searched at the top level and one level down under `json`, `item` or `data`. A one-element array is accepted. |
+| `library` | Optional: `auto`, `video`, `image`, `file`. Default `auto` on `/videos` and `/images` (decided by the real file type); `/files` always stores a generic file. |
+| `async` | Optional `true`: answer immediately (`202`) and poll the job (see below). |
+
+Accepted link formats: `https://drive.google.com/file/d/FILE_ID/view` (also `/preview`, `?usp=sharing`), `https://drive.google.com/open?id=FILE_ID`, `https://drive.google.com/uc?id=FILE_ID&export=download`, `https://docs.google.com/document|spreadsheets|presentation/d/FILE_ID/...`, and a bare file ID. Folder links and Forms are rejected. The link itself is never fetched; only the extracted file ID is sent to the Google Drive API.
+
+A form-data or `application/x-www-form-urlencoded` request with the same field names works too (when no file is attached).
+
+## Response
+
+`201 Created` for a new import, `200 OK` when the same unchanged Drive file was already imported (no second download, no second record):
+
+```json
+{
+  "success": true,
+  "publicUrl": "https://media.example.com/videos/UNIQUE_ID.mp4",
+  "item": { "id": "UNIQUE_ID", "mediaType": "video", "originalName": "clip.mp4", "mimeType": "video/mp4", "size": 245000000, "sha256": "...", "durationSeconds": 127, "...": "same fields as an upload" },
+  "source": { "type": "gdrive", "fileId": "FILE_ID" },
+  "duplicate": false
+}
+```
+
+Use `{{$json.item.publicUrl}}` or `{{$json.publicUrl}}` in n8n. `item.id` is OnePipePilot's ID; `source.fileId` is the Google Drive ID. Google Docs/Sheets/Slides are exported (PDF/XLSX/PDF) and stored in the File library; Drawings become images.
+
+## Long downloads and Cloudflare (async mode)
+
+Cloudflare answers `524` if a request takes longer than ~100 seconds. For big files send `"async": true`:
+
+```json
+{ "success": true, "async": true, "jobId": "…", "state": "queued", "statusUrl": "https://media.example.com/api/v1/imports/<jobId>" }
+```
+
+Poll `GET /api/v1/imports/:jobId` (API key) until `job.state` is `done` or `failed`. The response contains `job` (`bytes`, `total`, `state`, `error`) and, when done, `publicUrl` and `item`. Jobs are kept in memory for the latest 50 imports.
+
+## Errors
+
+Same error schema as the rest of the API.
+
+| HTTP | `code` | Meaning |
+| --- | --- | --- |
+| 400 | `invalid_drive_url`, `drive_folder_not_supported`, `drive_unsupported_type`, `empty_file`, `validation_error` | Bad link or parameters |
+| 401 | `missing_api_key`, `invalid_api_key`, `revoked_api_key` | API key problem |
+| 403 | `drive_access_denied`, `drive_download_restricted` | The connected account may not read or download the file |
+| 404 | `drive_file_not_found` | Missing, in trash, or not shared with the connected account |
+| 409 | `drive_not_connected`, `drive_reauthorization_required` | An administrator must (re)connect Google Drive |
+| 413 | `file_too_large` | Above the maximum upload size (checked before downloading) |
+| 415 | `unsupported_media_type` | The content is not a valid file for that library |
+| 429 | `drive_quota_exceeded`, `rate_limited` | Google or local rate limit |
+| 502 | `drive_unavailable`, `drive_download_failed`, `drive_download_incomplete`, `drive_unexpected_response` | Google Drive problem or interrupted download; nothing was stored |
+| 507 | `insufficient_storage` | Not enough free disk space |

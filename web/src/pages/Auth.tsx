@@ -28,7 +28,7 @@ export function AuthScreen({ setupRequired, onDone }: { setupRequired: boolean; 
       <div className="hidden flex-col justify-between bg-ink-900 p-12 text-ink-200 lg:flex">
         <div className="flex items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-lg bg-reel-600 text-white"><svg viewBox="0 0 32 32" className="h-5 w-5" aria-hidden><path d="M12 9l11 7-11 7z" fill="currentColor" /></svg></div>
-          <span className="font-display text-lg font-semibold text-white">Local Video Host</span>
+          <span className="font-display text-lg font-semibold text-white">OnePipePilot</span>
         </div>
         <div>
           <p className="font-display text-4xl font-semibold leading-tight text-white">Your videos, on your disk,<br />one link each.</p>

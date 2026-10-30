@@ -1,8 +1,8 @@
 {
-  "name": "local-video-host",
+  "name": "onepipepilot",
   "version": "1.0.0",
   "private": true,
-  "description": "Secure self-hosted video storage API with an admin dashboard",
+  "description": "OnePipePilot: self-hosted media storage API with Google Drive import and an admin dashboard",
   "license": "UNLICENSED",
   "engines": {
     "node": ">=22.0.0"

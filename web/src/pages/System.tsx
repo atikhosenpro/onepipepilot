@@ -11,6 +11,7 @@ interface Diag {
   status: 'ok' | 'warn' | 'error'; messages: { level: 'warn' | 'error'; text: string }[]; database: { ok: boolean; error?: string };
   storage: { directories: { name: string; path: string; exists: boolean; writable: boolean }[]; disk: { freeBytes: number; totalBytes: number } | null };
   publicBase: { value: string; status: 'ok' | 'warn'; note: string };
+  drive?: { status: 'not_configured' | 'disconnected' | 'connected' | 'reauthorization_required'; account: string | null; lastCheck: { ok: boolean; message: string } | null };
   lastCleanup: null | { startedAt: string; finishedAt: string; ok: boolean; trigger: string; tempRemoved: number; trashPurged: number; uploadsTrashed: number; errors: string[] };
   app: { version: string; node: string; platform: string; uptimeSeconds: number; mode: string; trustProxy: unknown };
 }
@@ -51,6 +52,7 @@ export default function System() {
           {row('Database', <Badge tone={d.database.ok ? 'ok' : 'error'}>{d.database.ok ? 'OK' : 'Error'}</Badge>)}
           {d.storage.directories.filter((x) => ['uploads', 'trash', 'temp'].includes(x.name)).map((x) => row(`${x.name[0].toUpperCase()}${x.name.slice(1)} directory`, <Badge tone={x.exists && x.writable ? 'ok' : 'error'}>{!x.exists ? 'Missing' : x.writable ? 'Writable' : 'Read-only'}</Badge>))}
           {row('Disk space', d.storage.disk ? `${formatBytes(d.storage.disk.freeBytes)} free of ${formatBytes(d.storage.disk.totalBytes)}` : 'Not reported')}
+          {d.drive && row('Google Drive', <span className="inline-flex items-center gap-2">{d.drive.account && <span className="text-xs">{d.drive.account}</span>}<Badge tone={d.drive.status === 'connected' ? 'ok' : d.drive.status === 'reauthorization_required' ? 'error' : 'neutral'}>{d.drive.status === 'connected' ? 'Connected' : d.drive.status === 'reauthorization_required' ? 'Reconnect required' : d.drive.status === 'disconnected' ? 'Not connected' : 'Not configured'}</Badge></span>)}
           {row('Public base URL', <span className="inline-flex items-center gap-2"><span className="font-mono text-xs">{d.publicBase.value}</span><Badge tone={d.publicBase.status}>{d.publicBase.status === 'ok' ? 'Configured' : 'Check'}</Badge></span>)}
         </section>
         {meta && (

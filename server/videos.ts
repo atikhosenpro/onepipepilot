@@ -13,6 +13,7 @@ export interface VideoRow {
   media_type: MediaType; category: string | null; metadata_status: string; metadata_source: string | null; metadata_error: string | null; metadata_updated_at: string | null;
   duration_seconds: number | null; width: number | null; height: number | null; aspect_ratio: string | null; aspect_ratio_value: number | null; orientation: string | null;
   frame_rate: number | null; video_codec: string | null; audio_codec: string | null; image_format: string | null; has_alpha: number | null; color_space: string | null;
+  source_type: string | null; source_id: string | null; source_md5: string | null;
 }
 
 export const publicUrlFor = (base: string, row: Pick<VideoRow, 'id' | 'extension'> & { media_type?: MediaType }) => `${base}${URL_PREFIX[row.media_type ?? 'video']}/${row.id}.${row.extension}`;

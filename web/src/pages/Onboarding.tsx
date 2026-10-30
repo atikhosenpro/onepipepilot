@@ -42,7 +42,7 @@ function Radios({ options, value, onPick, label, name }: { options: string[]; va
 async function deliver(a: Answers): Promise<void> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Your device reports that it has no internet connection. Connect and try again, or skip.');
   const payload = {
-    _subject: 'Local Video Host: new onboarding submission', _template: 'table', _captcha: 'false', _honey: '',
+    _subject: 'OnePipePilot: new onboarding submission', _template: 'table', _captcha: 'false', _honey: '',
     name: a.name || '(not given)', email: a.email || '(not given)', role: a.role || '-', use_cases: a.useCases.join(', ') || '-', tools: a.tools.join(', ') || '-',
     monthly_uploads: a.volume || '-', typical_file_size: a.fileSize || '-', hosting: a.hosting || '-', notes: a.notes || '-', submitted_at: new Date().toISOString(),
     ...(a.email ? { _replyto: a.email } : {}),
@@ -97,7 +97,7 @@ export function Onboarding({ onDone }: { onDone: () => Promise<void> }) {
         <div className="border-b border-ink-100 bg-ink-900 px-6 py-5 text-white">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-lg bg-reel-600"><svg viewBox="0 0 32 32" className="h-5 w-5" aria-hidden><path d="M12 9l11 7-11 7z" fill="currentColor" /></svg></div>
-            <div><h1 className="font-display text-lg font-semibold">Welcome to Local Video Host</h1><p className="text-sm text-ink-300">A quick welcome survey. It takes about a minute and is shown only once.</p></div>
+            <div><h1 className="font-display text-lg font-semibold">Welcome to OnePipePilot</h1><p className="text-sm text-ink-300">A quick welcome survey. It takes about a minute and is shown only once.</p></div>
           </div>
           <ol className="mt-5 flex gap-2" aria-label="Progress">{STEPS.map((s, i) => (
             <li key={s} className="flex-1" aria-current={i === step ? 'step' : undefined}><div className={`h-1.5 rounded-full ${i <= step ? 'bg-reel-400' : 'bg-ink-700'}`} /><div className={`mt-1.5 hidden text-xs sm:block ${i === step ? 'text-white' : 'text-ink-400'}`}>{i + 1}. {s}</div></li>))}</ol>

@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createEnv, createKey, makeMp4, setupAdmin, type TestEnv } from './helpers';
 import { craftPng } from './fixtures';
 
-const HTML = '<!doctype html><html><head><title>Local Video Host</title></head><body><div id="root"></div></body></html>';
+const HTML = '<!doctype html><html><head><title>OnePipePilot</title></head><body><div id="root"></div></body></html>';
 let env: TestEnv; let key: string;
 
 beforeAll(async () => {
@@ -24,7 +24,7 @@ afterAll(() => env.cleanup());
 const page = (p: string, method: 'get' | 'head' = 'get') => request(env.built.app)[method](p).set('Accept', 'text/html,application/xhtml+xml');
 
 describe('dashboard pages survive a hard refresh', () => {
-  for (const p of ['/', '/videos', '/images', '/files', '/trash', '/storage', '/api-keys', '/logs', '/settings', '/docs', '/system', '/account']) {
+  for (const p of ['/', '/videos', '/images', '/files', '/drive', '/trash', '/storage', '/api-keys', '/logs', '/settings', '/docs', '/system', '/account']) {
     it(`GET ${p} returns the dashboard`, async () => {
       const res = await page(p);
       expect(res.status).toBe(200);

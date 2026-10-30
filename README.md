@@ -1,4 +1,4 @@
-# Local Video Host
+# OnePipePilot
 
 A self-hosted media storage server for your own computer. A client such as n8n uploads the actual video, image or file (multipart/form-data) with an API key; the app saves it to local disk and returns a **public direct URL** that Buffer, browsers or other services can fetch. It includes an admin dashboard (video, image and file libraries with filters, trash, storage, API keys, settings, activity logs, API docs, diagnostics) and automatic metadata (duration, resolution, aspect ratio, orientation ...).
 
@@ -15,7 +15,7 @@ A self-hosted media storage server for your own computer. A client such as n8n u
 
 ## Install and start (Windows)
 
-1. Right-click `local-video-host.zip` and choose **Extract All...**
+1. Right-click `onepipepilot.zip` and choose **Extract All...**
 2. Open the extracted folder, click the address bar, type `cmd` and press Enter (or open a terminal there).
 3. Run:
 
@@ -95,6 +95,85 @@ Videos uploaded with the previous version are analysed once, automatically, in t
 
 Replace the program files (keep your `data/` and `storage/` folders and `.env`) and start the app. The database migrates itself on start: every existing video, ID, public URL and API key keeps working, and your videos simply gain metadata fields. Back up `data/` and `storage/` first if you want to be extra safe.
 
+## Google Drive import (send a link, not a video)
+
+Instead of n8n downloading a big video from Google Drive and uploading the whole binary through your tunnel, n8n now sends only a small JSON message containing the Drive link (`webViewLink`). OnePipePilot downloads the file **directly from Google Drive to its own disk** using the official Google Drive API, registers it exactly like a normal upload, and returns the usual public URL.
+
+```
+Before:  Google Drive -> n8n (full video) -> tunnel -> OnePipePilot -> public URL
+Now:     n8n sends {"webViewLink": "..."}  ->  OnePipePilot <== (streams the file) == Google Drive  ->  public URL
+```
+
+Normal binary uploads are unchanged and keep working side by side.
+
+### 1. Create the Google credentials (one time, free)
+
+1. Open <https://console.cloud.google.com/>, create (or choose) a project.
+2. **APIs & Services -> Library -> Google Drive API -> Enable.**
+3. **APIs & Services -> OAuth consent screen**: user type *External*, fill in the app name and your e-mail, add the scope `https://www.googleapis.com/auth/drive.readonly` (read-only), and add your Google account under **Test users**.
+4. **APIs & Services -> Credentials -> Create credentials -> OAuth client ID -> Web application.**
+5. Under **Authorised redirect URIs** add the address shown on the dashboard's **Google Drive** page. It is your Public base URL plus `/api/admin/drive/callback`, for example `http://localhost:3100/api/admin/drive/callback` or `https://media.example.com/api/admin/drive/callback`. It must match exactly. (Google only allows `http://` redirect URIs for `localhost`; any other host needs `https://`.)
+6. Copy the **Client ID** and **Client secret**.
+
+> While the consent screen is in *Testing* mode, Google expires the authorisation after 7 days. Either click **Publish app** (no review is needed for personal use of a read-only scope; Google just shows an "unverified app" screen) or reconnect weekly.
+
+### 2. Connect it in the dashboard
+
+Open **Google Drive** in the sidebar, paste the Client ID and Client secret, click **Save credentials**, then **Connect Google account** and approve access. When you return, the status shows **Connected** with the account e-mail. **Test connection** checks it at any time; **Disconnect** revokes the tokens and erases them.
+
+* The app asks for **read-only** access. It can never change, move or delete anything in your Drive, and it never modifies the original file after importing.
+* Connecting an account does **not** give access to every file on Drive. OnePipePilot can only read what that Google account can open. For files owned by someone else, they must be shared with the connected account (or be visible to it).
+
+### 3. Browse and import by hand
+
+The Google Drive page has a file browser: **My Drive** and **Shared with me**, folders (open, go up, breadcrumb path), search by name, paging ("Load more", it never loads a whole Drive), sizes, dates and icons for videos and images. For any file you can **Inspect** its details (including whether it is already imported), **Copy link / ID**, or **Import**. Imports show live progress, and the result links to the right library. Videos go to the Video library, images to the Image library, everything else to the File library (the type is checked from Google's metadata and again from the downloaded content). Google Docs, Sheets and Slides are exported (PDF/XLSX), up to Google's 10 MB export limit.
+
+### 4. n8n: send the existing `webViewLink`
+
+Use the same endpoint and API key as before, but send JSON instead of the binary:
+
+* HTTP Request node, **POST** `https://YOUR-HOST/api/v1/videos` (works for images too)
+* Authentication: Header `Authorization: Bearer YOUR_API_KEY` (unchanged)
+* Send Body: on, Body Content Type **JSON**, body: `{ "webViewLink": "{{ $json.webViewLink }}" }`
+* Options -> **Timeout**: raise it (for example 600000 ms) for large files.
+
+OnePipePilot accepts the item's `webViewLink` (also `driveUrl`, `fileId`/`driveFileId`, or a Drive `url`), so you can even send the whole item. The response has the same shape as an upload; use `{{$json.item.publicUrl}}` (or `{{$json.publicUrl}}`) in the next node:
+
+```json
+{ "success": true, "publicUrl": "https://media.example.com/videos/<id>.mp4", "item": { "id": "<id>", "mediaType": "video", "durationSeconds": 127, "...": "..." },
+  "source": { "type": "gdrive", "fileId": "<Drive file ID>" }, "duplicate": false }
+```
+
+* The Drive file ID identifies the **source**; `item.id` is OnePipePilot's own ID. They are different.
+* **Repeated requests are safe.** Importing the same unchanged Drive file again returns the existing item (`"duplicate": true`, HTTP 200) without downloading again. If the file changed in Drive, a new copy is created.
+* **Cloudflare's 100-second limit:** a request through Cloudflare must answer within about 100 seconds. Most files finish well within that. For very large files add `"async": true`: OnePipePilot answers immediately with `202` and a `statusUrl`; poll it (`GET /api/v1/imports/<jobId>`, same API key) until `job.state` is `done`, then read `publicUrl`.
+* Optional `"library": "auto" | "video" | "image" | "file"`. `/videos` and `/images` auto-detect by default; `/files` always stores a generic file.
+
+### 5. Security and storage of the credentials
+
+* The Client secret, the refresh token and the access token are **encrypted at rest** (AES-256-GCM) in the database and are never sent to the browser, never logged and never returned by any API. The encryption key is stored **outside** the database: `data/drive-encryption.key` (created automatically, excluded from the ZIP), or your own `DRIVE_ENCRYPTION_KEY` in `.env`. Keep a copy: without the key the saved tokens cannot be read (you would just reconnect).
+* The Google sign-in uses OAuth with PKCE and a one-time, 10-minute `state` value that is checked on return.
+* Only a validated Google file ID is ever used: OnePipePilot never fetches the pasted link, and only talks to Google's own API hosts.
+* Everything needs your existing admin login (dashboard) or API key (n8n). Imports are limited to the configured maximum upload size and to 2 downloads at a time.
+
+### 6. Troubleshooting
+
+| You see | Meaning and fix |
+| --- | --- |
+| `drive_not_connected` | Connect Google Drive on the dashboard first |
+| `drive_reauthorization_required` | Google revoked or expired the access (common after 7 days in Testing mode). Click **Reconnect** |
+| `drive_file_not_found` | The file does not exist, is in the Drive trash, or the connected account has no access. Share it with that account |
+| `drive_access_denied` / `drive_download_restricted` | The account may not read it, or the owner disabled downloading |
+| `drive_quota_exceeded` | Google's rate or daily quota was hit. Wait and retry |
+| `file_too_large` | Above the maximum upload size (Settings) |
+| `insufficient_storage` | Not enough free disk space |
+| `drive_download_failed` / `drive_download_incomplete` | The transfer was interrupted. Nothing was stored; retry |
+| `unsupported_media_type` | The downloaded content is not a valid file of that library (for example a text file named `.mp4`) |
+| `invalid_drive_url` | Use a link like `https://drive.google.com/file/d/FILE_ID/view`, an `open?id=` link, or the bare file ID |
+| `redirect_uri_mismatch` (at Google) | The redirect URI in Google Cloud does not exactly match the one on the Google Drive page |
+
+Every import step is recorded in **Activity logs** (`drive_*` events) without any secrets, and **System** shows the Drive connection status.
+
 ## Using the dashboard
 
 * **Video library**: search by filename or ID, sort, paginate, preview, copy the public/download URL, view metadata (including SHA-256), move to trash (single or bulk).
@@ -116,11 +195,11 @@ See `API.md` for the full reference. In short: HTTP Request node, POST `https://
 | `npm run start` | Production mode (builds first if needed) |
 | `npm run test` | Runs the automated tests (Vitest + Supertest) |
 | `npm run lint` | ESLint plus TypeScript checks for server and dashboard |
-| `npm run package:zip` | Creates `release/local-video-host.zip` (excludes secrets, database, uploads, `node_modules`) |
+| `npm run package:zip` | Creates `release/onepipepilot.zip` (excludes secrets, database, uploads, `node_modules`) |
 
 ## Configuration (.env, all optional)
 
-`HOST` (default `127.0.0.1`), `PORT` (`3000`), `STORAGE_ROOT`, `DATA_DIR`, `PUBLIC_BASE_URL` (initial value only), `TRUST_PROXY` (`false`, a hop count like `1`, or `loopback`), `COOKIE_SECURE` (`auto`, `true`, `false`). Everything else is changed in the dashboard Settings.
+`HOST` (default `127.0.0.1`), `PORT` (`3000`), `STORAGE_ROOT`, `DATA_DIR`, `DRIVE_ENCRYPTION_KEY` (optional, see Google Drive), `PUBLIC_BASE_URL` (initial value only), `TRUST_PROXY` (`false`, a hop count like `1`, or `loopback`), `COOKIE_SECURE` (`auto`, `true`, `false`). Everything else is changed in the dashboard Settings.
 
 ## Security checklist before exposing to the internet
 

@@ -7,6 +7,7 @@ import { mediaQuerySchema, toListOpts } from './mediaQuery';
 import type { MediaType } from './mediaTypes';
 import { extractMetadata } from './metadata';
 import { uploadHandler } from './upload';
+import { driveJsonImport, importStatusHandler } from './driveApi';
 import { listVideos, requireVideo, toItem, trashVideo } from './videos';
 
 const LIBRARIES: { kind: MediaType; path: string }[] = [
@@ -36,7 +37,7 @@ export function apiRouter(ctx: Ctx): Router {
       return row;
     };
 
-    r.post(path, uploadLimiter, auth, asyncHandler(uploadHandler(ctx, kind)));
+    r.post(path, uploadLimiter, auth, driveJsonImport(ctx, kind), asyncHandler(uploadHandler(ctx, kind)));
 
     // List: all filters combine with AND, are validated, and run as SQL (never in memory). Default status=active.
     r.get(path, uploadLimiter, auth, (req, res) => {
@@ -67,6 +68,8 @@ export function apiRouter(ctx: Ctx): Router {
       res.json({ success: true, id: req.params.id, status: 'trashed' });
     }));
   }
+
+  r.get('/imports/:id', uploadLimiter, auth, importStatusHandler(ctx));
 
   r.use((_req, _res, next) => next(new AppError(404, 'not_found', 'Unknown endpoint.')));
   return r;

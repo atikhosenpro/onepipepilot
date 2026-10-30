@@ -1,6 +1,6 @@
 # Project rules for coding agents (AGENTS.md; identical to CLAUDE.md)
 
-This is **Local Video Host**: a self-hosted, local-disk video storage API with an admin dashboard (Node/Express/SQLite + React/Vite/Tailwind, TypeScript). Read `README.md` and `API.md` first.
+This is **OnePipePilot**: a self-hosted, local-disk video storage API with an admin dashboard (Node/Express/SQLite + React/Vite/Tailwind, TypeScript). Read `README.md` and `API.md` first.
 
 Rules:
 
@@ -12,6 +12,7 @@ Rules:
 6. **Keep binary uploads disk-streamed** (busboy -> temp file with hashing). Never buffer a whole upload in memory.
 7. **Keep direct public video URLs working**: raw bytes, correct `Content-Type`/`Content-Length`, HEAD, byte ranges (206/416), ETag/Last-Modified/If-Range, JSON (never HTML) errors, 410 for trashed. Never build file paths from request input; look files up by DB ID. Never build public URLs from the `Host` header.
 8. **No arbitrary URL fetching and no filesystem browser APIs.** The only outbound requests are fixed ones: the admin-triggered check of `<publicBaseUrl>/api/v1/health`, (the onboarding form is posted by the **browser** to `https://formsubmit.co/ajax/atikwebpro@gmail.com`; that host is the only external entry in the production CSP `connect-src`; the server just records `kv.onboarding_done`). Never make either endpoint configurable from user input.
+8d. **Google Drive**: use only the official REST API on Google hosts (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`), never fetch a user-supplied URL (only the validated file ID), keep the `drive.readonly` scope, never expose or log the client secret / tokens (they are AES-256-GCM encrypted in `kv`, key outside the DB), stream downloads to `temp/` and register only completed, validated files through `ingestMedia` (shared with uploads). Never remove the multipart upload path. Imports must stay idempotent per Drive file ID. Mock Google in tests (`tests/drive.test.ts`).
 8c. **Route collisions**: `/videos`, `/images` and `/files` are both dashboard pages and public media prefixes. Only exact `GET/HEAD` of the bare path falls through to the dashboard; anything deeper must stay a JSON 404 or a media response. Keep `tests/spa.test.ts` passing.
 8a. **Libraries**: videos, images and files share the `videos` table (`media_type`) and the `uploads`/`trash` folders. Keep migrations additive, keep `/videos` URLs and the original item fields unchanged, deliver active content (HTML/JS/PHP/XML/SVG) sandboxed or as attachments, and never let metadata extraction modify, move or delete a stored file (a failed analysis only sets `metadata_status`).
 8b. **Onboarding** is shown once before the first admin exists (`onboardingDone` in `/api/admin/session`; also true whenever an admin already exists). Do not show it again after submit, skip, setup or login.

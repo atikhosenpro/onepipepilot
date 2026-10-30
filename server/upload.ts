@@ -7,14 +7,16 @@ import busboy from 'busboy';
 import type { Request, Response } from 'express';
 import type { Ctx } from './context';
 import { AppError } from './errors';
-import { classifyUpload } from './classify';
-import { extractMetadata } from './metadata';
+import { ingestMedia } from './ingest';
 import type { MediaType } from './mediaTypes';
-import { diskSpace, uploadPath } from './storage';
-import { getVideo, toItem, type VideoRow } from './videos';
-import { nowIso, sanitizeFilename } from './util';
+import { diskSpace } from './storage';
+import { pickDriveSource } from './driveImport';
+import { respondWithImport } from './driveApi';
+import { toItem, type VideoRow } from './videos';
 
 interface Parsed { size: number; sha256: string; head: Buffer; filename: string; clientMime: string }
+/** A multipart request that carried only a Drive link (text field) and no file. */
+interface DriveField { driveSource: string; fields: Record<string, string> }
 
 const IDEMPOTENCY_RE = /^[A-Za-z0-9_.:-]{8,128}$/;
 
@@ -62,30 +64,20 @@ export function uploadHandler(ctx: Ctx, kind: MediaType = 'video') {
 
     const tempPath = path.join(ctx.config.dirs.temp, `${randomUUID()}.part`);
     ctx.activeTemps.add(tempPath);
-    let finalPath: string | null = null;
     try {
-      const parsed = await receive(req, tempPath, settings.fieldName, settings.maxUploadBytes, fail);
+      const received = await receive(req, tempPath, settings.fieldName, settings.maxUploadBytes, fail);
+      if ('driveSource' in received) { // n8n sent form fields only (e.g. webViewLink): import from Google Drive instead of reading a file
+        ctx.activeTemps.delete(tempPath);
+        await respondWithImport(ctx, req, res, kind, received.driveSource, { library: received.fields.library, async: received.fields.async });
+        return;
+      }
+      const parsed = received;
       if (parsed.size === 0) throw fail(new AppError(400, 'empty_file', 'The uploaded file is empty.'));
 
-      const cls = classifyUpload(kind, parsed, settings, fail);
-
-      const id = randomUUID();
-      const storageName = `${id}.${cls.ext}`;
-      finalPath = uploadPath(ctx, storageName);
-      if (fs.existsSync(finalPath)) throw new AppError(500, 'internal_error', 'Storage name collision.'); // practically impossible
-      await fs.promises.rename(tempPath, finalPath);
-      ctx.activeTemps.delete(tempPath);
-
-      const now = nowIso();
+      let row: VideoRow;
       try {
-        ctx.db.transaction(() => {
-          ctx.db.prepare(`INSERT INTO videos (id, original_name, storage_name, mime_type, extension, size, sha256, status, created_at, updated_at, api_key_id, idempotency_key, media_type, category, metadata_status)
-            VALUES (?,?,?,?,?,?,?, 'active', ?, ?, ?, ?, ?, ?, ?)`)
-            .run(id, sanitizeFilename(parsed.filename), storageName, cls.mime, cls.ext, parsed.size, parsed.sha256, now, now, keyId, idemKey, kind, cls.category, kind === 'file' ? 'ready' : 'pending');
-        })();
+        ({ row } = await ingestMedia(ctx, { kind, tempPath, parsed, keyId, idemKey, actor: `apikey:${keyId}`, ip, fail }));
       } catch (e) {
-        await fs.promises.unlink(finalPath).catch(() => undefined);
-        finalPath = null;
         if (idemKey && /UNIQUE/i.test((e as Error).message)) {
           const winner = ctx.db.prepare('SELECT * FROM videos WHERE api_key_id = ? AND idempotency_key = ?').get(keyId, idemKey) as VideoRow | undefined;
           if (winner?.status === 'active') {
@@ -96,16 +88,11 @@ export function uploadHandler(ctx: Ctx, kind: MediaType = 'video') {
         }
         throw e;
       }
-      // Analyse right away (fast header parsing). Failure never affects the stored file: the item just reports metadataStatus.
-      let row = getVideo(ctx, id) as VideoRow;
-      if (kind !== 'file') row = (await extractMetadata(ctx, id).catch(() => undefined)) ?? row;
       const item = toItem(row, settings);
-      ctx.audit(`${kind}_uploaded`, { actor: `apikey:${keyId}`, ip, metadata: { videoId: id, mediaType: kind, size: parsed.size, mimeType: cls.mime, originalName: row.original_name, metadataStatus: row.metadata_status } });
       res.status(201).json({ success: true, publicUrl: item.publicUrl, item });
     } catch (e) {
       ctx.activeTemps.delete(tempPath);
       await fs.promises.unlink(tempPath).catch(() => undefined);
-      if (finalPath) await fs.promises.unlink(finalPath).catch(() => undefined);
       if (e instanceof AppError) throw e;
       const code = (e as NodeJS.ErrnoException).code;
       if (code === 'ENOSPC') throw fail(new AppError(507, 'insufficient_storage', 'The server ran out of disk space during the upload.'));
@@ -116,8 +103,8 @@ export function uploadHandler(ctx: Ctx, kind: MediaType = 'video') {
 }
 
 /** Stream the single file part to `tempPath` on disk, hashing as it goes. Never buffers the file in memory. */
-function receive(req: Request, tempPath: string, fieldName: string, maxBytes: number, fail: (e: AppError, x?: Record<string, unknown>) => AppError): Promise<Parsed> {
-  return new Promise<Parsed>((resolve, reject) => {
+function receive(req: Request, tempPath: string, fieldName: string, maxBytes: number, fail: (e: AppError, x?: Record<string, unknown>) => AppError): Promise<Parsed | DriveField> {
+  return new Promise<Parsed | DriveField>((resolve, reject) => {
     let bb: busboy.Busboy;
     try {
       bb = busboy({ headers: req.headers, defParamCharset: 'utf8', limits: { fileSize: maxBytes, files: 1, fields: 10, fieldSize: 10_000, parts: 15 } });
@@ -130,7 +117,8 @@ function receive(req: Request, tempPath: string, fieldName: string, maxBytes: nu
     let filePromise: Promise<Parsed> | null = null;
     let outStream: fs.WriteStream | null = null;
 
-    const finish = (err: Error | null, value?: Parsed) => {
+    const fields: Record<string, string> = {};
+    const finish = (err: Error | null, value?: Parsed | DriveField) => {
       if (settled) return;
       settled = true;
       req.unpipe(bb);
@@ -163,11 +151,13 @@ function receive(req: Request, tempPath: string, fieldName: string, maxBytes: nu
       }));
       filePromise.catch(() => undefined);
     });
+    bb.on('field', (name, val) => { if (typeof val === 'string' && val.length <= 4096) fields[name] = val; });
     bb.on('error', () => finish(fail(new AppError(400, 'invalid_multipart', 'The multipart request body is malformed.'))));
     bb.on('partsLimit', () => finish(fail(new AppError(400, 'invalid_multipart', 'Too many multipart parts.'))));
     bb.on('close', async () => {
       if (settled) return;
       if (pending) return finish(pending);
+      if (!filePromise) { const src = pickDriveSource(fields); if (src) return finish(null, { driveSource: src, fields }); }
       if (!filePromise) return finish(fail(new AppError(400, 'missing_file', `No file received. Send the video in the multipart field "${fieldName}".`, { expectedField: fieldName })));
       try { finish(null, await filePromise); }
       catch (e) { finish(settled ? null : (e as Error)); }

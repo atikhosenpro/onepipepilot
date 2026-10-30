@@ -100,6 +100,21 @@ export default function ApiDocs() {
       <H>Public URLs and safety</H>
       <p className="text-sm text-ink-700">Videos: <span className="font-mono">/videos/ID.ext</span>, images: <span className="font-mono">/images/ID.ext</span>, files: <span className="font-mono">/files/ID.ext</span>. All support GET, HEAD, ranges and <span className="font-mono">?download=1</span>. HTML, JS, PHP, CSS and XML files are always delivered as attachments with a sandbox policy; SVG is sandboxed; PDF, text, CSV, JSON and audio open inline; everything else downloads.</p>
 
+      <H>Google Drive import (n8n sends a link)</H>
+      <p className="mb-2 text-sm text-ink-700">Send a small JSON body instead of the video. OnePipePilot downloads the file straight from Google Drive (official API), stores it like any upload and returns the same response. Connect Google Drive first on the <b>Google Drive</b> page.</p>
+      <Code>{`curl -X POST "${base}/api/v1/videos" \\
+  -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" \\
+  -d '{ "webViewLink": "https://drive.google.com/file/d/FILE_ID/view" }'`}</Code>
+      <ul className="mb-3 mt-3 list-inside list-disc space-y-1 text-sm text-ink-700">
+        <li>n8n HTTP Request: POST <span className="font-mono">{base}/api/v1/videos</span>, same API key, Body Content Type <b>JSON</b>, body <span className="font-mono">{'{ "webViewLink": "{{ $json.webViewLink }}" }'}</span>; raise the node timeout for big files.</li>
+        <li>Also accepted: <span className="font-mono">driveUrl, fileId, driveFileId</span>, a Drive <span className="font-mono">url</span>, open?id= links, bare file IDs, nested <span className="font-mono">json/item/data</span>, or form fields. Folder links are refused.</li>
+        <li>The response is the normal upload response plus <span className="font-mono">source.fileId</span> and <span className="font-mono">duplicate</span>. Read <span className="font-mono">{'{{$json.item.publicUrl}}'}</span>. <span className="font-mono">item.id</span> is OnePipePilot's ID, not the Drive ID.</li>
+        <li>The same unchanged Drive file returns the existing item (HTTP 200, <span className="font-mono">duplicate: true</span>) without downloading again.</li>
+        <li>Library is auto-detected on /videos and /images (<span className="font-mono">library</span> can force it); /files stores a generic file.</li>
+        <li>Cloudflare answers 524 after ~100 s. For big files send <span className="font-mono">"async": true</span>, then poll <span className="font-mono">GET /api/v1/imports/&lt;jobId&gt;</span> until <span className="font-mono">job.state</span> is done and read <span className="font-mono">publicUrl</span>.</li>
+        <li>Errors: invalid_drive_url (400), drive_file_not_found (404), drive_access_denied / drive_download_restricted (403), drive_not_connected / drive_reauthorization_required (409), file_too_large (413), drive_quota_exceeded (429), drive_download_failed / drive_download_incomplete (502), insufficient_storage (507).</li>
+      </ul>
+
       <H>Errors</H>
       <Code>{`{ "success": false, "error": { "code": "invalid_api_key", "message": "The API key is not valid." } }`}</Code>
       <div className="card overflow-x-auto"><table className="w-full text-sm"><thead className="border-b border-ink-100 bg-ink-50/60"><tr><th className="th">Status</th><th className="th">Code</th><th className="th">Meaning</th></tr></thead><tbody className="divide-y divide-ink-100">

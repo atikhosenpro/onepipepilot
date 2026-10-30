@@ -1,11 +1,11 @@
-// `npm run package:zip`: builds release/local-video-host.zip from source (cross-platform, no external zip tool).
+// `npm run package:zip`: builds release/onepipepilot.zip from source (cross-platform, no external zip tool).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ZipArchive } from 'archiver';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const outFile = path.join(root, 'release', 'local-video-host.zip');
+const outFile = path.join(root, 'release', 'onepipepilot.zip');
 
 const EXCLUDE_DIRS = new Set(['node_modules', 'dist', 'data', 'storage', 'release', '.git', '.test-tmp', '.vite', 'coverage']);
 const EXCLUDE_FILE = [/^\.env$/, /^\.env\.(?!example$).+/, /\.log$/i, /\.(db|db-wal|db-shm|sqlite|sqlite3)$/i, /^setup-token\.txt$/, /\.zip$/i, /\.tsbuildinfo$/, /^\.DS_Store$/, /^Thumbs\.db$/i];

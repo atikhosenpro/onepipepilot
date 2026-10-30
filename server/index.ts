@@ -19,7 +19,7 @@ async function main() {
   });
   server.listen(config.port, config.host, () => {
     const shown = config.host === '0.0.0.0' || config.host === '::' ? 'localhost' : config.host === '127.0.0.1' ? 'localhost' : config.host;
-    console.log(`\n  Local Video Host v${config.version} (${config.devMode ? 'development' : 'production'})\n  Open in your browser:  http://${shown}:${config.port}\n  Storage:               ${config.storageRoot}\n  Database:              ${config.dbPath}\n`);
+    console.log(`\n  OnePipePilot v${config.version} (${config.devMode ? 'development' : 'production'})\n  Open in your browser:  http://${shown}:${config.port}\n  Storage:               ${config.storageRoot}\n  Database:              ${config.dbPath}\n`);
   });
 
   const shutdown = () => { console.log('Shutting down...'); server.close(() => { built.close(); process.exit(0); }); setTimeout(() => process.exit(0), 5000).unref(); };

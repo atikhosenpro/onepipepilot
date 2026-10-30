@@ -3,6 +3,7 @@ import type { Ctx } from './context';
 import { lastCleanup, listOrphans } from './maintenance';
 import { checkWritable, diskSpace, dirStats } from './storage';
 import { metadataCounts, metadataTools } from './metadata';
+import { driveState } from './driveClient';
 
 export async function dirReport(ctx: Ctx, name: string, dir: string) {
   const [stats, w] = await Promise.all([dirStats(dir), checkWritable(dir)]);
@@ -50,12 +51,15 @@ export async function diagnostics(ctx: Ctx) {
   if (!tools.ffprobe.available) messages.push({ level: 'warn', text: 'FFprobe is not installed: only MP4/MOV/M4V/3GP, WebM/MKV and AVI can be analysed. Other video formats are stored without duration/size metadata.' });
   const pending = (counts.video.pending ?? 0) + (counts.image.pending ?? 0);
   if (pending > 0) messages.push({ level: 'warn', text: `${pending} item(s) are waiting for metadata analysis (System page -> Metadata).` });
+  const drive = driveState(ctx);
+  if (drive.status === 'reauthorization_required') messages.push({ level: 'warn', text: 'Google Drive access has expired or was revoked. Reconnect it on the Google Drive page.' });
+  if (drive.lastCheck && !drive.lastCheck.ok) messages.push({ level: 'warn', text: 'The last Google Drive connection test failed. Check the Google Drive page.' });
   const orphans = await listOrphans(ctx);
   if (orphans.missingFiles.length) messages.push({ level: 'error', text: `${orphans.missingFiles.length} video record(s) have no file on disk.` });
   if (orphans.unknownFiles.length) messages.push({ level: 'warn', text: `${orphans.unknownFiles.length} file(s) on disk are not tracked in the database.` });
   const status = messages.some((m) => m.level === 'error') ? 'error' : messages.some((m) => m.level === 'warn') ? 'warn' : 'ok';
   return {
-    status, messages, database, storage, publicBase, lastCleanup: cleanup, orphans, metadata: { tools, counts },
+    status, messages, database, storage, publicBase, lastCleanup: cleanup, orphans, metadata: { tools, counts }, drive: { status: drive.status, account: drive.account?.email ?? null, connectedAt: drive.connectedAt, lastCheck: drive.lastCheck },
     app: { version: ctx.config.version, node: process.version, platform: process.platform, uptimeSeconds: Math.round(process.uptime()), mode: ctx.config.devMode ? 'development' : 'production', trustProxy: ctx.config.trustProxy },
   };
 }

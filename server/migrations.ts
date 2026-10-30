@@ -107,4 +107,15 @@ CREATE INDEX idx_videos_meta_status ON videos(metadata_status);
 CREATE INDEX idx_videos_category ON videos(category);
 `,
   },
+  {
+    // Additive only: remembers where an imported item came from (e.g. a Google Drive file ID) so repeated imports can be detected.
+    version: 3,
+    name: 'import source tracking',
+    sql: `
+ALTER TABLE videos ADD COLUMN source_type TEXT;
+ALTER TABLE videos ADD COLUMN source_id TEXT;
+ALTER TABLE videos ADD COLUMN source_md5 TEXT;
+CREATE INDEX idx_videos_source ON videos(source_type, source_id);
+`,
+  },
 ];

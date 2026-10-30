@@ -13,6 +13,7 @@ import { AppError, asyncHandler, errorBody, parseWith } from './errors';
 import { listOrphans, runMaintenance } from './maintenance';
 import { getSettings, normalizeBaseUrl, settingsPatchSchema, updateSettings } from './settings';
 import { cleanTemp, diskSpace } from './storage';
+import { driveAdmin, driveCallback } from './driveRoutes';
 import { mediaQuerySchema, toListOpts } from './mediaQuery';
 import { extractMetadata, metadataCounts, metadataTools, startBackfill } from './metadata';
 import { bulk, getVideo, listVideos, purgeVideo, requireVideo, restoreVideo, toItem, trashedIds, trashVideo } from './videos';
@@ -101,8 +102,11 @@ export function adminRouter(ctx: Ctx): Router {
     res.json({ success: true });
   });
 
+  driveCallback(r, ctx); // reached from Google's redirect; protected by the one-time OAuth state
+
   // ----- everything below needs a session; mutations also need the CSRF token -----
   r.use(requireAdmin, csrfGuard);
+  driveAdmin(r, ctx, actor);
 
   r.post('/change-password', asyncHandler(async (req, res) => {
     const body = parseWith(z.object({ currentPassword: z.string().max(200), newPassword: z.string().max(200) }), req.body);

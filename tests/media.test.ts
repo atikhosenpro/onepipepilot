@@ -57,7 +57,7 @@ describe('database migration safety', () => {
       expect(row).toMatchObject({ id, original_name: 'legacy.mp4', storage_name: `${id}.mp4`, size: bytes.length, status: 'active', media_type: 'video', metadata_status: 'pending', duration_seconds: null });
       expect((built.ctx.db.prepare('SELECT COUNT(*) c FROM api_keys').get() as { c: number }).c).toBe(1);
       expect(built.ctx.settings().trashRetentionDays).toBe(14);
-      expect((built.ctx.db.prepare('SELECT MAX(version) v FROM schema_migrations').get() as { v: number }).v).toBe(2);
+      expect((built.ctx.db.prepare('SELECT MAX(version) v FROM schema_migrations').get() as { v: number }).v).toBe(migrations[migrations.length - 1].version); // old v1 database is upgraded through every later migration
       // the old public URL still works
       const pub = await request(built.app).get(`/videos/${id}.mp4`).buffer(true).parse(binary);
       expect(pub.status).toBe(200); expect(pub.body.equals(bytes)).toBe(true);
